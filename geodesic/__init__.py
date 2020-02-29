@@ -22,12 +22,24 @@ icosahedron_vertices = np.array([
     [-phi, 0, -1],
 ]) / np.linalg.norm([1, phi])
 
+# Rotate the vertices so that a vertex lies on top
+c = phi / np.sqrt(1 + phi**2)
+s = -1 / np.sqrt(1 + phi**2)
+rotation_matrix = np.array([[1, 0, 0], [0, c, -s], [0, s, c]])
+icosahedron_vertices = np.dot(rotation_matrix, icosahedron_vertices.T).T
+
 tetrahedron_vertices = np.array([
     [1, 0, -np.sqrt(0.5)],
     [-1, 0, -np.sqrt(0.5)],
     [0, 1, np.sqrt(0.5)],
     [0, -1, np.sqrt(0.5)],
 ]) / np.linalg.norm([1, np.sqrt(0.5)])
+
+# Rotate the vertices so that a vertex lies on top
+c = np.sqrt(1. / 3.)
+s = -np.sqrt(2. / 3.)
+rotation_matrix = np.array([[1, 0, 0], [0, c, -s], [0, s, c]])
+tetrahedron_vertices = np.dot(rotation_matrix, tetrahedron_vertices.T).T
 
 octahedron_vertices = np.array([
     [1, 0, 0],
@@ -181,7 +193,7 @@ def matrix_for_edge(v1, v2):
 def matrix_for_face(v1, v2, v3):
     translation = (v1 + v2 + v3) / 3
     y = v2 - 0.5 * (v1 + v3)
-    x = v3 - v1
+    x = v1 - v3
 
     x = x / np.linalg.norm(x)
     z = np.cross(x, y)
@@ -244,6 +256,29 @@ def face_triangles_2d(faces, points, face_matrices):
         return tri_pts
     return [_tri(face, matrix) for face, matrix in zip(faces, face_matrices)]
 
+def filter_vertices(criterion, points, edges=None, faces=None):
+    """ Applies the function `criterion` to each point in `points`, and keeps it if the function returns True.
+    Discarded points are removed from the set, and the indices in `edges` and `faces` are adjusted accordingly.
+    Returns a tuple containing the new points, edges, and faces (if edges and faces were given)
+    """
+
+    keep = np.array([criterion(pt) for pt in points])
+
+    new_points = points[keep]
+    result = [new_points]
+
+    lookup = np.cumsum(keep) - 1
+    keep_indices = np.arange(len(points))[keep]
+    if edges is not None:
+        new_edges = np.array([[lookup[i1], lookup[i2]] for (i1, i2) in edges if i1 in keep_indices and i2 in keep_indices])
+        result.append(new_edges)
+
+    if faces is not None:
+        new_faces = np.array([[lookup[i1], lookup[i2], lookup[i3]] for (i1, i2, i3) in faces if i1 in keep_indices and i2 in keep_indices])
+        result.append(new_faces)
+
+    return tuple(result)
+
 def sphere(v=2, base=None):
     """ Returns the vertices, edges, and faces of a geodesic sphere.
     """
@@ -259,63 +294,3 @@ def sphere(v=2, base=None):
     es = orient_edges(es, vs, field=field)
 
     return (vs, es, fs)
-
-def main():
-    import solid
-    import solid.utils
-
-    (vs, es, fs) = geodesic_sphere(v=8)
-
-    #scale_factor = 1. / np.amax(np.abs(vs), axis=1)
-    #new_vs = vs * scale_factor[:, None]
-    #vs = 0.5 * vs + 0.5 * new_vs
-
-    vms = vertex_matrices(vs)
-    ems = edge_matrices(es, vs)
-    fms = face_matrices(fs, vs)
-
-    els = edge_lengths(es, vs)
-    ves = vertex_edges(es)
-    vfs = vertex_faces(fs)
-
-    fts = face_triangles_2d(fs, vs, fms)
-
-    shape = solid.union()
-    #for e, em, el in zip(es, ems, els):
-    #    edge_shape = solid.utils.rot_z_to_right(solid.cylinder(r1=0.05, r2=0.01, h=el * 0.9, center=True))
-    #    if any(len(ves[i]) == 5 for i in e):
-    #        edge_shape = solid.color("red")(edge_shape)
-    #    shape.add(solid.multmatrix(em)(edge_shape))
-
-    for f, fm, ft in zip(fs, fms, fts):
-        face_shape = solid.linear_extrude(0.01)(solid.polygon(ft * 0.8))
-        if any(len(vfs[i]) == 5 for i in f):
-            face_shape = solid.color("red")(face_shape)
-        shape.add(solid.multmatrix(fm)(face_shape))
-
-    solid.scad_render_to_file(shape, 'test.scad')
-
-    #edge_matrix = [matrix_for_edge(i, vertex_translations, edge_vertex_indices).tolist() for i in edges]
-    #face_matrix = [matrix_for_face(i, vertex_translations, edge_vertex_indices, face_edge_indices).tolist() for i in faces]
-    #print("for (m = vertex_matrix) { multmatrix(m) cylinder(r=0.1, h=0.2, center=true);}")
-    #print("for (m = vertex_matrix) { multmatrix(m) sphere(r=0.1, center=true);}")
-    #print("for (m = vertex_matrix) { multmatrix(m) linear_extrude(0.1) text(\"A\", 0.3);}")
-    #print("for (m = edge_matrix) { multmatrix(m) rotate(90, [0, 1, 0]) cylinder(r1=0.05, r2=0.01, h=0.4, center=true);}")
-    #print("for (m = face_matrix) { multmatrix(m) rotate(90, [1, 0, 0]) cylinder(r1=0, r2=0.1, h=0.2, center=true);}")
-    #print()
-    #print("$fn = 12;")
-    #print("vertex_matrix = " + str(vertex_matrix) + ";")
-    #print("edge_matrix = " + str(edge_matrix) + ";")
-    #print("face_matrix = " + str(face_matrix) + ";")
-    #print("vertex_translations = " + str(vertex_translations.tolist()) + ";")
-    #f = faces_from_points(icosahedron_vertices)
-    #p = subdivide_faces(f, icosahedron_vertices, v=3)
-    #print(p)
-    #e = edges_from_faces(f)
-
-    #print(e)
-    #print(orient_edges(e, icosahedron_vertices))
-    #print(orient_faces(f, icosahedron_vertices))
-
-if __name__ == "__main__":
-    main()
